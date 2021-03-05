@@ -41,7 +41,7 @@ class Sampling(layers.Layer):
 
 class BVAE(keras.Model):
     def __init__(self, encoder, decoder, beta, flatted_dim_for_loss, **kwargs):
-        super(VAE, self).__init__(**kwargs)
+        super(BVAE, self).__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
         self.beta = beta
@@ -79,7 +79,7 @@ class BCVAE():
         encoder (instance): function map from image to latent space
         dencoder (instance): function map from latent space to image 
     '''
-    def __init__(self, images, latent_dim, epochs, batch_size=128 , beta=60, n_convolutions=3, 
+    def __init__(self, images, latent_dim, epochs, batch_size=256 , beta=60, n_convolutions=3, 
                             n_hidden_layers=3, background_subtractor=False, resize_images = None, rgb_average=False, 
                                 train_percentage=0.80, first_layer_filters=32, first_layer_neurons=500):
 
@@ -150,8 +150,8 @@ class BCVAE():
             dim_1 = int(dim_1 / strides)
             dim_2 = int(dim_2 / strides)
 
-        if n_convolutions:
-            x = layers.Flatten()(x)
+        #if n_convolutions:
+        x = layers.Flatten()(x)
 
         neurons = first_layer_neurons
         neurons_used = []
@@ -179,7 +179,10 @@ class BCVAE():
             for i in range(len(filters_used)-1,-1,-1):
                 x = layers.Conv2DTranspose(filters_used[i], kernel_dim, activation="relu", strides=strides, padding="same")(x)
         
-        decoder_outputs = layers.Conv2DTranspose(dim_3, kernel_dim, activation="sigmoid", padding="same")(x)
+            decoder_outputs = layers.Conv2DTranspose(dim_3, kernel_dim, activation="sigmoid", padding="same")(x)
+        else:
+            decoder_outputs = layers.Dense(dim_1 * dim_2 * dim_3, activation="sigmoid")(x)
+            decoder_outputs = layers.Reshape(image.shape)(decoder_outputs)
 
         if dim_3 == 1:
             decoder_outputs = layers.Reshape(image.shape)(decoder_outputs)
@@ -216,10 +219,10 @@ class BCVAE():
 
         images = images / 255 if self.rgb_images else images
         
-        if rgb_average:
+        if self.rgb_average:
             images = np.average(images, axis=3)  
 
-        return np.array(standardizated_images)        
+        return np.array(images)        
 
     def get_encoder(self):
         return self.encoder
@@ -238,8 +241,9 @@ class BCVAE():
 
 
 class BCVAEAnalisys():
-    def __init__(self, images, latent_dim = 7, epochs=30, 
-                        beta = 80, n_convolutions = 3, n_hidden_layers= 3):
+    def __init__(self, images, latent_dim = 7, epochs=30, beta = 80, n_convolutions = 3, 
+                             n_hidden_layers= 3, background_subtractor=False, resize_images = None, 
+                                           rgb_average=False, first_layer_filters=32, first_layer_neurons=500):
 
         self.latent_dim = latent_dim
         self.epochs = epochs
@@ -247,8 +251,15 @@ class BCVAEAnalisys():
         self.n_convolutions = n_convolutions
         self.n_hidden_layers= n_hidden_layers
         self.images = images
-    
-        self.abst = BCVAE(images, latent_dim, epochs, beta = beta, n_convolutions=n_convolutions, n_hidden_layers=n_hidden_layers)
+        self.background_subtractor = background_subtractor
+        self.resize_images = resize_images
+        self.rgb_average = rgb_average
+        self.first_layer_filters = first_layer_filters
+        self.first_layer_neurons = first_layer_neurons
+
+        self.abst = BCVAE(images, latent_dim, epochs, beta = beta, n_convolutions=n_convolutions, n_hidden_layers=n_hidden_layers,
+                                   background_subtractor=background_subtractor, resize_images = resize_images, rgb_average=rgb_average,
+                                             first_layer_filters=first_layer_filters, first_layer_neurons=first_layer_neurons)
 
     '''
     Description
@@ -258,7 +269,7 @@ class BCVAEAnalisys():
         columns = 5
         rows = 2
         imgs = [self.images[np.random.randint(len(self.images))] for _ in range(columns)]
-        imgs = imgs + [self.abst.decoder(self.abst.encoding(np.array([imgs[i],imgs[i]])))[0] for i in range(columns)]
+        imgs = imgs + [self.abst.decoding(self.abst.encoding(np.array([imgs[i],imgs[i]]))[2])[0] for i in range(columns)]
 
 
         fig = plt.figure(figsize=(10., 10.))
@@ -527,9 +538,13 @@ class VAEWithSkewFitAnalisys(BCVAEAnalisys):
 
 if __name__ == "__main__":
 
-    dataset = np.load("/DATASET/REAL-Solution/data/transitions_file.npy", allow_pickle=True)
+    images = np.load("real_images1.npz", allow_pickle=True)['arr_0']
+    for i in range(2,5):
+        images = np.concatenate([images, np.load("real_images{}.npz".format(i), allow_pickle=True)['arr_0']])
 
-    images = np.array([np.array(img[2][0]) for img in dataset])
+    print("dataset shape: {}".format(np.shape(images)))
 
-    bcvae_analisys = BCVAEAnalisys(images)
-    bcvae_analisys.five_random_recostructions()
+    for i in range(0,4):
+        for j in range(1,4):
+            bcvae_analisys = BCVAEAnalisys(images, n_convolutions = i, n_hidden_layers= j, background_subtractor=True)
+            bcvae_analisys.five_random_recostructions()
